@@ -110,6 +110,9 @@ jobs:
 
       - name: Terraform plan
         working-directory: ${{ env.TF_WORKING_DIR }}
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         run: terraform plan -input=false -out=${{ env.TF_PLAN_FILE }} -no-color
 
       - name: Upload Terraform plan
