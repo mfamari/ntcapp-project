@@ -1,7 +1,6 @@
 name: Terraform CI/CD (auto-apply with scanning)
 
 on:
-    
   push:
     branches:
       - main
@@ -23,6 +22,7 @@ jobs:
   validate-and-scan:
     name: Terraform validate and scan
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -30,7 +30,7 @@ jobs:
           fetch-depth: 0
 
       - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v4
+        uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.5.7
 
@@ -64,12 +64,6 @@ jobs:
           tflint --init
           tflint --format sarif --out tflint.sarif || true
 
-     # - name: Upload TFLint results
-      #  if: always()
-       # uses: github/codeql-action/upload-sarif@v3
-        #with:
-         # sarif_file: ${{ env.TF_WORKING_DIR }}/tflint.sarif 
-
       # ---- tfsec ----
       - name: Run tfsec
         uses: aquasecurity/tfsec-pr-commenter-action@v1.3.0
@@ -77,13 +71,7 @@ jobs:
           directory: ${{ env.TF_WORKING_DIR }}
           format: sarif
           output: ${{ env.TF_WORKING_DIR }}/tfsec.sarif
-        continue-on-error: false
-
-      #- name: Upload tfsec results
-       # if: always()
-      # uses: github/codeql-action/upload-sarif@v3
-       # with:
-         # sarif_file: ${{ env.TF_WORKING_DIR }}/tfsec.sarif
+        continue-on-error: true
 
       # ---- Checkov ----
       - name: Install Checkov
@@ -96,18 +84,12 @@ jobs:
         run: |
           checkov -d . --quiet --output-file-path checkov.json --output json || true
 
-      #- name: Upload Checkov report
-      #  if: always()
-       # uses: actions/upload-artifact@v4
-      #  with:
-       #   name: checkov-report
-       #   path: ${{ env.TF_WORKING_DIR }}/checkov.json
-
   plan-and-apply:
     name: Terraform plan & apply
     needs: validate-and-scan
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main'
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -115,7 +97,7 @@ jobs:
           fetch-depth: 0
 
       - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v2
+        uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.5.7
 
