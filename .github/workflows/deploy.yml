@@ -1,0 +1,144 @@
+name: Terraform CI/CD (auto-apply with scanning)
+
+on:
+    
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  TF_WORKING_DIR: ./terraform
+  TF_PLAN_FILE: plan.binary
+
+permissions:
+  contents: read
+  id-token: write
+  pull-requests: write
+
+jobs:
+  validate-and-scan:
+    name: Terraform validate and scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: 1.5.7
+
+      - name: Setup Python (for Checkov)
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Terraform fmt check
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: terraform fmt -check -recursive
+
+      - name: Terraform init
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        run: terraform init -input=false
+
+      - name: Terraform validate
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: terraform validate -no-color
+
+      # ---- TFLint ----
+      - name: Install TFLint
+        uses: terraform-linters/setup-tflint@v3
+
+      - name: Run TFLint
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: |
+          tflint --init
+          tflint --format sarif --out tflint.sarif || true
+
+     # - name: Upload TFLint results
+      #  if: always()
+       # uses: github/codeql-action/upload-sarif@v3
+        #with:
+         # sarif_file: ${{ env.TF_WORKING_DIR }}/tflint.sarif 
+
+      # ---- tfsec ----
+      - name: Run tfsec
+        uses: aquasecurity/tfsec-pr-commenter-action@v1.3.0
+        with:
+          directory: ${{ env.TF_WORKING_DIR }}
+          format: sarif
+          output: ${{ env.TF_WORKING_DIR }}/tfsec.sarif
+        continue-on-error: false
+
+      #- name: Upload tfsec results
+       # if: always()
+      # uses: github/codeql-action/upload-sarif@v3
+       # with:
+         # sarif_file: ${{ env.TF_WORKING_DIR }}/tfsec.sarif
+
+      # ---- Checkov ----
+      - name: Install Checkov
+        run: |
+          python -m pip install --upgrade pip
+          pip install checkov
+
+      - name: Run Checkov scan
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: |
+          checkov -d . --quiet --output-file-path checkov.json --output json || true
+
+      #- name: Upload Checkov report
+      #  if: always()
+       # uses: actions/upload-artifact@v4
+      #  with:
+       #   name: checkov-report
+       #   path: ${{ env.TF_WORKING_DIR }}/checkov.json
+
+  plan-and-apply:
+    name: Terraform plan & apply
+    needs: validate-and-scan
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: 1.5.7
+
+      - name: Terraform init
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        run: terraform init -input=false
+
+      - name: Terraform plan
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: terraform plan -input=false -out=${{ env.TF_PLAN_FILE }} -no-color
+
+      - name: Upload Terraform plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-plan
+          path: ${{ env.TF_WORKING_DIR }}/${{ env.TF_PLAN_FILE }}
+
+      - name: Terraform apply
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        run: terraform apply -auto-approve -input=false ${{ env.TF_PLAN_FILE }}
