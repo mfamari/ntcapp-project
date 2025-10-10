@@ -1,4 +1,4 @@
-name: Terraform CI/CD (auto-apply with scanning)
+name: Terraform CI/CD (auto-apply with scanning and cost analysis)
 
 on:
   push:
@@ -85,7 +85,7 @@ jobs:
           checkov -d . --quiet --output-file-path checkov.json --output json || true
 
   plan-and-apply:
-    name: Terraform plan & apply
+    name: Terraform plan, cost analysis & apply
     needs: validate-and-scan
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main'
@@ -106,7 +106,7 @@ jobs:
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_REGION : us-east-1
+          AWS_REGION: us-east-1
         run: terraform init -input=false
 
       - name: Terraform plan
@@ -114,7 +114,7 @@ jobs:
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_REGION : us-east-1
+          AWS_REGION: us-east-1
         run: terraform plan -input=false -out=${{ env.TF_PLAN_FILE }} -no-color
 
       - name: Upload Terraform plan
@@ -123,10 +123,34 @@ jobs:
           name: terraform-plan
           path: ${{ env.TF_WORKING_DIR }}/${{ env.TF_PLAN_FILE }}
 
+      # ---- Infracost Cost Analysis ----
+      - name: Setup Infracost
+        uses: infracost/actions/setup@v3
+
+      - name: Run Infracost breakdown
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        env:
+          INFRACOST_API_KEY: ${{ secrets.INFRACOST_API_KEY }}
+        run: |
+          infracost breakdown --path . \
+            --terraform-plan-file ${{ env.TF_PLAN_FILE }} \
+            --format table \
+            --out-file infracost.txt
+          echo "==== Estimated Cost Breakdown ===="
+          cat infracost.txt
+
+      - name: Post cost estimate comment (PR only)
+        if: github.event_name == 'pull_request'
+        uses: infracost/actions/comment@v3
+        env:
+          INFRACOST_API_KEY: ${{ secrets.INFRACOST_API_KEY }}
+        with:
+          path: ${{ env.TF_WORKING_DIR }}/infracost.txt
+
       - name: Terraform apply
         working-directory: ${{ env.TF_WORKING_DIR }}
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_REGION : us-east-1
+          AWS_REGION: us-east-1
         run: terraform apply -auto-approve -input=false ${{ env.TF_PLAN_FILE }}
