@@ -34,44 +34,41 @@ jobs:
           terraform_version: 1.5.7
 
       - name: Setup Python (for Checkov)
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
       - name: Terraform fmt check
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: terraform fmt -check -recursive
-        shell: bash
 
       - name: Terraform init
         working-directory: ${{ env.TF_WORKING_DIR }}
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: us-east-1
         run: terraform init -input=false
-        shell: bash
 
       - name: Terraform validate
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: terraform validate -no-color
-        shell: bash
 
       # ---- TFLint ----
       - name: Install TFLint
-        uses: terraform-linters/setup-tflint@v3
+        uses: terraform-linters/setup-tflint@v4
 
       - name: Run TFLint
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: |
           tflint --init
           tflint --format sarif --out tflint.sarif || true
-        shell: bash
 
       # ---- tfsec ----
       - name: Run tfsec
         uses: aquasecurity/tfsec-pr-commenter-action@v1.3.0
         with:
-          directory: ${{ env.TF_WORKING_DIR }}
+          working_directory: ${{ env.TF_WORKING_DIR }}
           format: sarif
           output: ${{ env.TF_WORKING_DIR }}/tfsec.sarif
         continue-on-error: true
@@ -81,13 +78,21 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install checkov
-        shell: bash
 
       - name: Run Checkov scan
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: |
           checkov -d . --quiet --output-file-path checkov.json --output json || true
-        shell: bash
+
+      # ---- Upload scan artifacts ----
+      - name: Upload scan results
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-scan-reports
+          path: |
+            ${{ env.TF_WORKING_DIR }}/tflint.sarif
+            ${{ env.TF_WORKING_DIR }}/tfsec.sarif
+            ${{ env.TF_WORKING_DIR }}/checkov.json
 
   plan-and-apply:
     name: Terraform plan, cost analysis & apply
@@ -112,7 +117,6 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_REGION: us-east-1
         run: terraform init -input=false
-        shell: bash
 
       - name: Terraform plan
         working-directory: ${{ env.TF_WORKING_DIR }}
@@ -121,7 +125,6 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_REGION: us-east-1
         run: terraform plan -input=false -out=${{ env.TF_PLAN_FILE }} -no-color
-        shell: bash
 
       - name: Upload Terraform plan
         uses: actions/upload-artifact@v4
@@ -146,7 +149,6 @@ jobs:
             --out-file infracost.json
           echo "==== Estimated Cost Breakdown ===="
           infracost output --path infracost.json --format table
-        shell: bash
 
       - name: Post cost estimate comment (PR only)
         if: github.event_name == 'pull_request'
@@ -157,6 +159,13 @@ jobs:
           behavior: update
           tag: terraform-cost
 
+      # ---- Upload Infracost report ----
+      - name: Upload cost analysis report
+        uses: actions/upload-artifact@v4
+        with:
+          name: infracost-report
+          path: ${{ env.TF_WORKING_DIR }}/infracost.json
+
       - name: Terraform apply
         if: github.ref == 'refs/heads/main'
         working-directory: ${{ env.TF_WORKING_DIR }}
@@ -165,4 +174,3 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_REGION: us-east-1
         run: terraform apply -auto-approve -input=false ${{ env.TF_PLAN_FILE }}
-        shell: bash
