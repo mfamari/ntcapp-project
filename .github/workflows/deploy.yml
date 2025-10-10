@@ -41,7 +41,6 @@ jobs:
       - name: Terraform fmt check
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: terraform fmt -check -recursive
-        shell: bash
 
       - name: Terraform init
         working-directory: ${{ env.TF_WORKING_DIR }}
@@ -49,12 +48,10 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         run: terraform init -input=false
-        shell: bash
 
       - name: Terraform validate
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: terraform validate -no-color
-        shell: bash
 
       # ---- TFLint ----
       - name: Install TFLint
@@ -65,7 +62,6 @@ jobs:
         run: |
           tflint --init
           tflint --format sarif --out tflint.sarif || true
-        shell: bash
 
       # ---- tfsec ----
       - name: Run tfsec
@@ -81,13 +77,11 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install checkov
-        shell: bash
 
       - name: Run Checkov scan
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: |
           checkov -d . --quiet --output-file-path checkov.json --output json || true
-        shell: bash
 
   plan-and-apply:
     name: Terraform plan, cost analysis & apply
@@ -112,7 +106,6 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_REGION: us-east-1
         run: terraform init -input=false
-        shell: bash
 
       - name: Terraform plan
         working-directory: ${{ env.TF_WORKING_DIR }}
@@ -121,7 +114,6 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_REGION: us-east-1
         run: terraform plan -input=false -out=${{ env.TF_PLAN_FILE }} -no-color
-        shell: bash
 
       - name: Upload Terraform plan
         uses: actions/upload-artifact@v4
@@ -146,14 +138,14 @@ jobs:
             --out-file infracost.json
           echo "==== Estimated Cost Breakdown ===="
           infracost output --path infracost.json --format table
-        shell: bash
 
+      # Use the main Infracost action for PR comments
       - name: Post cost estimate comment (PR only)
         if: github.event_name == 'pull_request'
-        uses: infracost/actions/comment@v3
+        uses: infracost/actions@v3
         with:
           path: ${{ env.TF_WORKING_DIR }}/infracost.json
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          github-token: ${{ github.token }}
           behavior: update
           tag: terraform-cost
 
@@ -165,4 +157,3 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_REGION: us-east-1
         run: terraform apply -auto-approve -input=false ${{ env.TF_PLAN_FILE }}
-        shell: bash
