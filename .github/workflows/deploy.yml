@@ -88,7 +88,7 @@ jobs:
     name: Terraform plan, cost analysis & apply
     needs: validate-and-scan
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' || github.event_name == 'pull_request'
 
     steps:
       - name: Checkout repository
@@ -134,20 +134,22 @@ jobs:
         run: |
           infracost breakdown --path . \
             --terraform-plan-file ${{ env.TF_PLAN_FILE }} \
-            --format table \
-            --out-file infracost.txt
+            --format json \
+            --out-file infracost.json
           echo "==== Estimated Cost Breakdown ===="
-          cat infracost.txt
+          infracost output --path infracost.json --format table
 
       - name: Post cost estimate comment (PR only)
         if: github.event_name == 'pull_request'
-        uses: infracost/actions/comment@v3
-        env:
-          INFRACOST_API_KEY: ${{ secrets.INFRACOST_API_KEY }}
+        uses: infracost/actions@v3
         with:
-          path: ${{ env.TF_WORKING_DIR }}/infracost.txt
+          path: ${{ env.TF_WORKING_DIR }}/infracost.json
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          behavior: update
+          tag: terraform-cost
 
       - name: Terraform apply
+        if: github.ref == 'refs/heads/main'
         working-directory: ${{ env.TF_WORKING_DIR }}
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
