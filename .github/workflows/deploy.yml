@@ -110,6 +110,11 @@ jobs:
         with:
           terraform_version: 1.5.7
 
+      - name: Setup Infracost
+        uses: infracost/actions/setup@v3
+        with:
+          api-key: ${{ secrets.INFRACOST_API_KEY }}
+
       - name: Terraform init
         working-directory: ${{ env.TF_WORKING_DIR }}
         env:
@@ -133,11 +138,6 @@ jobs:
           path: ${{ env.TF_WORKING_DIR }}/${{ env.TF_PLAN_FILE }}
 
       # ---- Infracost Cost Analysis ----
-      - name: Setup Infracost
-        uses: infracost/actions/setup@v3
-        with:
-          api-key: ${{ secrets.INFRACOST_API_KEY }}
-
       - name: Run Infracost breakdown
         working-directory: ${{ env.TF_WORKING_DIR }}
         env:
@@ -150,14 +150,20 @@ jobs:
           echo "==== Estimated Cost Breakdown ===="
           infracost output --path infracost.json --format table
 
-      - name: Post cost estimate comment (PR only)
+      # ---- Post Infracost comment using CLI ----
+      - name: Post Infracost comment (PR only)
         if: github.event_name == 'pull_request'
-        uses: infracost/actions/comment@v2
-        with:
-          path: ${{ env.TF_WORKING_DIR }}/infracost.json
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          behavior: update
-          tag: terraform-cost
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INFRACOST_API_KEY: ${{ secrets.INFRACOST_API_KEY }}
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: |
+          infracost comment github \
+            --path=infracost.json \
+            --repo="${{ github.repository }}" \
+            --pull-request="${{ github.event.pull_request.number }}" \
+            --github-token="${{ secrets.GITHUB_TOKEN }}" \
+            --behavior=update
 
       # ---- Upload Infracost report ----
       - name: Upload cost analysis report
@@ -166,6 +172,7 @@ jobs:
           name: infracost-report
           path: ${{ env.TF_WORKING_DIR }}/infracost.json
 
+      # ---- Apply (auto-apply only on main) ----
       - name: Terraform apply
         if: github.ref == 'refs/heads/main'
         working-directory: ${{ env.TF_WORKING_DIR }}
