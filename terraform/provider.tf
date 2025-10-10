@@ -9,11 +9,5 @@ terraform {
 
 provider "aws" {
   region = "us-east-1"
-  default_tags {
-    tags = {
-      Project     = "ntcapp"
-      ManagedBy   = "terraform"
-      Repository  = "https://github.com/mfamari/ntcapp-project.git"
-    }
-  }
+
 }
