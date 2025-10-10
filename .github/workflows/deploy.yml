@@ -137,26 +137,28 @@ jobs:
           name: terraform-plan
           path: ${{ env.TF_WORKING_DIR }}/${{ env.TF_PLAN_FILE }}
 
-      # ---- Infracost Cost Analysis ----
+      # ---- Convert plan to JSON for Infracost ----
+      - name: Convert Terraform plan to JSON
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: terraform show -json ${{ env.TF_PLAN_FILE }} > plan.json
+
+      # ---- Run Infracost breakdown ----
       - name: Run Infracost breakdown
         working-directory: ${{ env.TF_WORKING_DIR }}
         env:
           INFRACOST_API_KEY: ${{ secrets.INFRACOST_API_KEY }}
         run: |
-          infracost breakdown --path . \
-            --terraform-plan-file ${{ env.TF_PLAN_FILE }} \
-            --format json \
-            --out-file infracost.json
+          infracost breakdown --path plan.json --format json --out-file infracost.json
           echo "==== Estimated Cost Breakdown ===="
           infracost output --path infracost.json --format table
 
-      # ---- Post Infracost comment using CLI ----
+      # ---- Post Infracost comment (PR only) ----
       - name: Post Infracost comment (PR only)
         if: github.event_name == 'pull_request'
+        working-directory: ${{ env.TF_WORKING_DIR }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           INFRACOST_API_KEY: ${{ secrets.INFRACOST_API_KEY }}
-        working-directory: ${{ env.TF_WORKING_DIR }}
         run: |
           infracost comment github \
             --path=infracost.json \
@@ -172,7 +174,7 @@ jobs:
           name: infracost-report
           path: ${{ env.TF_WORKING_DIR }}/infracost.json
 
-      # ---- Apply (auto-apply only on main) ----
+      # ---- Terraform apply ----
       - name: Terraform apply
         if: github.ref == 'refs/heads/main'
         working-directory: ${{ env.TF_WORKING_DIR }}
