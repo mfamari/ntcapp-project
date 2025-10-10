@@ -22,7 +22,6 @@ jobs:
   validate-and-scan:
     name: Terraform validate and scan
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -84,13 +83,11 @@ jobs:
         run: |
           checkov -d . --quiet --output-file-path checkov.json --output json || true
 
-  jobs:
   plan-and-apply:
     name: Terraform plan, cost analysis & apply
     needs: validate-and-scan
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' || github.event_name == 'pull_request'
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -144,7 +141,7 @@ jobs:
 
       - name: Post cost estimate comment (PR only)
         if: github.event_name == 'pull_request'
-        uses: infracost/actions/comment@v3
+        uses: infracost/actions@v3
         with:
           path: ${{ env.TF_WORKING_DIR }}/infracost.json
           github-token: ${{ secrets.GITHUB_TOKEN }}
